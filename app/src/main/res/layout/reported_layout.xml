@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical" >
+
+    <TextView
+        android:id="@android:id/title"
+        android:textAlignment="center"
+        android:layout_gravity="center"
+        android:textAppearance="@android:style/TextAppearance.Medium"
+        android:layout_width="match_parent"
+        android:text="Incidents reported by "
+        android:layout_height="wrap_content" >
+    </TextView>
+    <TextView
+        android:id="@android:id/empty"
+        android:textAlignment="center"
+        android:textAppearance="@android:style/TextAppearance.Large"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" >
+    </TextView>
+    <ListView
+        android:id="@android:id/list"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" >
+
+    </ListView>
+</LinearLayout>

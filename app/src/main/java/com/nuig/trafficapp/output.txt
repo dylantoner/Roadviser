@@ -1,0 +1,2771 @@
+package com.nuig.trafficapp.activities;
+
+import android.Manifest;
+import android.app.ProgressDialog;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.os.Bundle;
+import android.support.v4.app.ActivityCompat;
+import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
+import android.view.View;
+import android.widget.Toast;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.auth.api.signin.GoogleSignInResult;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.SignInButton;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.OptionalPendingResult;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.common.api.Status;
+import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
+import com.nuig.trafficapp.Constants;
+import com.nuig.trafficapp.R;
+
+import static com.google.android.gms.auth.api.Auth.*;
+
+/**
+ * Created by Dylan Toner on 18/02/2016.
+ */
+public class LoginActivity extends AppCompatActivity implements
+        GoogleApiClient.OnConnectionFailedListener,
+        View.OnClickListener {
+
+    private static final String TAG = "LoginActivity";
+    private static final int RC_GET_TOKEN = 9002;
+    private static GoogleAccountCredential credential;
+    private GoogleApiClient mGoogleApiClient;
+    private ProgressDialog mProgressDialog;
+    private GoogleSignInAccount acct;
+    private static final int REQUEST_GET_ACCOUNTS = 1;
+    private static final int REQUEST_ACCESS_FINE_LOCATION = 2;
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_signin);
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.GET_ACCOUNTS)
+                != PackageManager.PERMISSION_GRANTED) {
+            // Accounts permission has not been granted.
+
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.GET_ACCOUNTS},
+                    REQUEST_GET_ACCOUNTS);
+        }
+        else {
+            credential = GoogleAccountCredential.usingAudience(this, Constants.AUDIENCE_ANDROID_CLIENT_ID);
+        }
+
+        findViewById(R.id.sign_in_button).setOnClickListener(this);
+
+        GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken(Constants.WEB_CLIENT_ID)
+                .requestEmail()
+                .build();
+
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                .enableAutoManage(this /* FragmentActivity */, this /* OnConnectionFailedListener */)
+                .addApi(GOOGLE_SIGN_IN_API, gso)
+                .build();
+
+        SignInButton signInButton = (SignInButton) findViewById(R.id.sign_in_button);
+        signInButton.setSize(SignInButton.SIZE_STANDARD);
+        signInButton.setScopes(gso.getScopeArray());
+
+    }
+
+    public static GoogleAccountCredential getCredential() {
+        return credential;
+    }
+    public static void clearCredential(){
+        if(credential!=null)
+            credential.setSelectedAccountName("");
+    }
+
+    @Override
+    public void onStart() {
+        super.onStart();
+        OptionalPendingResult<GoogleSignInResult> opr = GoogleSignInApi.silentSignIn(mGoogleApiClient);
+        if (opr.isDone()) {
+            // If the user's cached credentials are valid, the OptionalPendingResult will be "done"
+            // and the GoogleSignInResult will be available instantly.
+            Log.d(TAG, "Got cached sign-in");
+            GoogleSignInResult result = opr.get();
+            if (result != null){
+                credential.setSelectedAccountName(result.getSignInAccount().getEmail());
+                handleSignInResult(result);
+             }
+        } else {
+            // If the user has not previously signed in on this device or the sign-in has expired,
+            // this asynchronous branch will attempt to sign in the user silently.  Cross-device
+            // single sign-on will occur in this branch.
+            showProgressDialog();
+            opr.setResultCallback(new ResultCallback<GoogleSignInResult>() {
+                @Override
+                public void onResult(GoogleSignInResult googleSignInResult) {
+                    hideProgressDialog();
+                    handleSignInResult(googleSignInResult);
+                }
+            });
+        }
+    }
+
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        // Result returned from launching the Intent from GoogleSignInApi.getSignInIntent(...);
+        if (requestCode == RC_GET_TOKEN) {
+            GoogleSignInResult result = GoogleSignInApi.getSignInResultFromIntent(data);
+            handleSignInResult(result);
+        }
+    }
+
+    private void handleSignInResult(GoogleSignInResult result) {
+        Log.d(TAG, "handleSignInResult:" + result.isSuccess());
+        if (result.isSuccess()) {
+            // Signed in successfully, show authenticated UI.
+            acct = result.getSignInAccount();
+            updateUI(true);
+            credential = GoogleAccountCredential.usingAudience(this, Constants.AUDIENCE_ANDROID_CLIENT_ID);
+            String email = acct.getEmail();
+
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.GET_ACCOUNTS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                // Accounts permission has not been granted.
+
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.GET_ACCOUNTS},
+                        REQUEST_GET_ACCOUNTS);
+            }
+            else {
+                credential.setSelectedAccountName(email);
+            }
+
+
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    // Location permission has not been granted.
+
+                    ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
+                            REQUEST_ACCESS_FINE_LOCATION);
+                } else {
+                SharedPreferences settings = getSharedPreferences("TrafficApp", 0);
+                String accountName = acct.getEmail();
+                String displayName = acct.getDisplayName();
+
+                SharedPreferences.Editor editor = settings.edit();
+                editor.putString("accountName",accountName);
+                editor.putString("displayName",displayName);
+                editor.apply();
+                    Intent intent = new Intent(this, MainActivity.class);
+                    intent.putExtra("acct", acct);
+                    startActivity(intent);
+                }
+            }
+         else {
+            // Signed out, show unauthenticated UI.
+            updateUI(false);
+        }
+
+    }
+    // [END handleSignInResult]
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                           String permissions[], int[] grantResults) {
+        switch (requestCode) {
+            case REQUEST_GET_ACCOUNTS: {
+                // If request is cancelled, the result arrays are empty.
+
+                if (grantResults.length > 0
+                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    // PERMISSION IS ALLOWED.
+                    credential = GoogleAccountCredential.usingAudience(this, Constants.AUDIENCE_ANDROID_CLIENT_ID);
+                } else {
+                    Toast.makeText(LoginActivity.this, "This app requires access to phone's accounts to login.", Toast.LENGTH_SHORT).show();
+                    if(acct!=null)
+                        credential.setSelectedAccountName(acct.getEmail());
+                }
+                return;
+            }
+            case REQUEST_ACCESS_FINE_LOCATION: {
+                // If request is cancelled, the result arrays are empty.
+
+                if (grantResults.length > 0
+                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+                    // PERMISSION IS ALLOWED.
+                    SharedPreferences settings = getSharedPreferences("TrafficApp", 0);
+                    String accountName = acct.getEmail();
+                    String displayName = acct.getDisplayName();
+
+                    SharedPreferences.Editor editor = settings.edit();
+                    editor.putString("accountName",accountName);
+                    editor.putString("displayName",displayName);
+                    editor.apply();
+                    Intent intent = new Intent(this, MainActivity.class);
+                    intent.putExtra("acct", acct);
+                    startActivity(intent);
+                } else {
+                    Toast.makeText(LoginActivity.this, "Location permission is required to use this app", Toast.LENGTH_SHORT).show();
+                    updateUI(false);
+                }
+                return;
+            }
+        }
+    }
+
+    private void signIn() {
+        Intent signInIntent = GoogleSignInApi.getSignInIntent(mGoogleApiClient);
+        startActivityForResult(signInIntent, RC_GET_TOKEN);
+    }
+
+    private void revokeAccess() {
+        GoogleSignInApi.revokeAccess(mGoogleApiClient).setResultCallback(
+                new ResultCallback<Status>() {
+                    @Override
+                    public void onResult(Status status) {
+                        // [START_EXCLUDE]
+                        updateUI(false);
+                        // [END_EXCLUDE]
+                    }
+                });
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+        // An unresolvable error has occurred and Google APIs (including Sign-In) will not
+        // be available.
+        Log.d(TAG, "onConnectionFailed:" + connectionResult);
+    }
+
+    private void showProgressDialog() {
+        if (mProgressDialog == null) {
+            mProgressDialog = new ProgressDialog(this);
+            mProgressDialog.setMessage("Loading");
+            mProgressDialog.setIndeterminate(true);
+        }
+
+        mProgressDialog.show();
+    }
+
+    private void hideProgressDialog() {
+        if (mProgressDialog != null && mProgressDialog.isShowing()) {
+            mProgressDialog.hide();
+        }
+    }
+
+    private void updateUI(boolean signedIn) {
+        if (signedIn) {
+            findViewById(R.id.sign_in_button).setVisibility(View.GONE);
+        } else {
+            findViewById(R.id.sign_in_button).setVisibility(View.VISIBLE);
+
+        }
+    }
+
+    @Override
+    public void onClick(View v) {
+        switch (v.getId()) {
+            case R.id.sign_in_button:
+                signIn();
+                break;
+        }
+    }
+}
+package com.nuig.trafficapp.activities;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.SharedPreferences;
+import android.os.Bundle;
+import android.preference.PreferenceManager;
+import android.support.design.widget.NavigationView;
+import android.support.v4.app.DialogFragment;
+import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentActivity;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.app.FragmentTransaction;
+import android.support.v4.content.LocalBroadcastManager;
+import android.support.v4.view.GravityCompat;
+import android.support.v4.widget.DrawerLayout;
+import android.support.v7.app.ActionBarDrawerToggle;
+import android.util.Log;
+import android.view.MenuItem;
+import android.widget.ListView;
+import com.google.android.gms.auth.api.Auth;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.auth.api.signin.GoogleSignInResult;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.OptionalPendingResult;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.common.api.Status;
+import com.nuig.trafficapp.AccountHelper;
+import com.nuig.trafficapp.CloudEndpointBuilderHelper;
+import com.nuig.trafficapp.QuickstartPreferences;
+import com.nuig.trafficapp.R;
+import com.nuig.trafficapp.RegistrationIntentService;
+import com.nuig.trafficapp.fragments.FeedbackDialogFragment;
+import com.nuig.trafficapp.fragments.ProfileFragment;
+import com.nuig.trafficapp.fragments.ReportedFragment;
+import com.nuig.trafficapp.fragments.TabFragment;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+import java.util.logging.Logger;
+
+import static com.google.android.gms.auth.api.Auth.GOOGLE_SIGN_IN_API;
+import static com.google.android.gms.auth.api.Auth.GoogleSignInApi;
+
+/**
+ * Created by Dylan Toner on 19/01/2016.
+ */
+public class MainActivity extends FragmentActivity
+implements NavigationView.OnNavigationItemSelectedListener,
+        GoogleApiClient.OnConnectionFailedListener
+{
+    DrawerLayout mDrawerLayout;
+    NavigationView mNavigationView;
+    FragmentManager mFragmentManager;
+    FragmentTransaction mFragmentTransaction;
+    private ListView incidentsList;
+    private TrafficApp trafficAppAPI;
+    private Context context;
+    public static final int PLAY_SERVICES_RESOLUTION_REQUEST = 9000;
+    static final String TAG = MainActivity.class.getSimpleName();
+    private static final Logger LOG = Logger.getLogger(MainActivity.class.getName());
+    private static final String PROPERTY_REG_ID = "registrationId";
+    private static final String PROPERTY_APP_VERSION = "appVersion";
+
+    private AccountHelper accountHelper;
+    private BroadcastReceiver mRegistrationBroadcastReceiver;
+    GoogleApiClient mGoogleApiClient;
+    GoogleSignInAccount acct;
+
+    @Override
+    protected void onCreate(final Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        PreferenceManager.setDefaultValues(this, R.xml.preferences, false);
+        Bundle extras = getIntent().getExtras();
+        if(extras!=null)
+            acct = extras.getParcelable("acct");
+
+        SharedPreferences settings = getSharedPreferences("TrafficApp", 0);
+        String accountName = settings.getString("accountName",null);
+        String displayName = settings.getString("displayName",null);
+        accountHelper = new AccountHelper();
+
+        accountHelper.addAccount(accountName,displayName);
+        incidentsList = (ListView) findViewById(android.R.id.list);
+        setContentView(R.layout.activity_main);
+        context = getApplicationContext();
+        trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+
+        mDrawerLayout = (DrawerLayout) findViewById(R.id.drawerLayout);
+        mNavigationView = (NavigationView) findViewById(R.id.nav_view);
+
+        mFragmentManager = getSupportFragmentManager();
+        mFragmentTransaction = mFragmentManager.beginTransaction();
+        mFragmentTransaction.replace(R.id.containerView,new TabFragment()).commit();
+
+        mNavigationView.setNavigationItemSelectedListener(this);
+
+        android.support.v7.widget.Toolbar toolbar = (android.support.v7.widget.Toolbar) findViewById(R.id.toolbar);
+        ActionBarDrawerToggle mDrawerToggle = new ActionBarDrawerToggle(this,mDrawerLayout, toolbar,R.string.app_name, R.string.app_name);
+        mDrawerLayout.setDrawerListener(mDrawerToggle);
+        mDrawerToggle.syncState();
+
+        mRegistrationBroadcastReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent.getAction().equals(QuickstartPreferences.REGISTRATION_COMPLETE)) {
+                    SharedPreferences sharedPreferences =
+                            PreferenceManager.getDefaultSharedPreferences(context);
+                    boolean sentToken = sharedPreferences
+                            .getBoolean(QuickstartPreferences.SENT_TOKEN_TO_SERVER, false);
+                    if (sentToken) {
+                        Log.i(TAG, "Token Success");
+                    } else {
+                        Log.i(TAG, "Token Error");
+                    }
+                }
+                if (intent.getAction().equals(QuickstartPreferences.UPDATE_UI)){
+                    TabFragment fragment = (TabFragment) getSupportFragmentManager().findFragmentById(R.id.containerView);
+                        if(fragment!=null)
+                            fragment.refreshItems();
+                }
+            }
+
+        };
+
+        if (checkPlayServices()) {
+
+            Log.i(TAG, "Not registered with GCM.");
+            Intent intent = new Intent(this, RegistrationIntentService.class);
+            startService(intent);
+            // Register GCM id in the background
+        } else {
+            Log.i(TAG, "No valid Google Play Services APK found.");
+        }
+
+        GoogleSignInOptions gso = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+                .build();
+
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                .enableAutoManage(this /* FragmentActivity */, this /* OnConnectionFailedListener */)
+                .addApi(GOOGLE_SIGN_IN_API, gso)
+                .build();
+
+
+    }//End OnCreate
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+        // An unresolvable error has occurred and Google APIs (including Sign-In) will not
+        // be available.
+        Log.d(TAG, "onConnectionFailed:" + connectionResult);
+    }
+    @Override
+    protected void onStart() {
+        super.onStart();
+        //Sign In again if necessary
+        if (acct==null){
+            acct = reLogin();
+        }
+    }
+
+    public GoogleSignInAccount reLogin(){
+        mGoogleApiClient.connect();
+        GoogleSignInAccount ac = null;
+        OptionalPendingResult<GoogleSignInResult> opr = GoogleSignInApi.silentSignIn(mGoogleApiClient);
+        if (opr.isDone()) {
+            GoogleSignInResult result = opr.get();
+            if (result != null){
+                ac = result.getSignInAccount();
+            }
+        }
+        return ac;
+    }
+
+    @Override
+    protected void onRestart() {
+        super.onRestart();
+        //Sign In again if necessary
+        if (acct==null){
+            acct = reLogin();
+        }
+
+    }@Override
+     protected void onStop() {
+    super.onStop();
+    logout();
+}
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        //Sign In again if necessary
+        if (acct==null){
+            acct = reLogin();
+        }
+
+        IntentFilter filter = new IntentFilter(QuickstartPreferences.REGISTRATION_COMPLETE);
+        filter.addAction(QuickstartPreferences.UPDATE_UI);
+        LocalBroadcastManager.getInstance(this).registerReceiver(mRegistrationBroadcastReceiver, filter);
+    }
+
+    @Override
+    protected void onPause() {
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(mRegistrationBroadcastReceiver);
+        super.onPause();
+    }
+
+    @Override
+    public boolean onNavigationItemSelected(MenuItem menuItem) {
+
+        //Navigation Items
+        if (menuItem.getItemId() == R.id.nav_home) {
+            FragmentTransaction xfragmentTransaction = mFragmentManager.beginTransaction();
+            Fragment tab = new TabFragment();
+            Fragment currentFragment = mFragmentManager.findFragmentById(R.id.containerView);
+            if(!(currentFragment instanceof TabFragment))
+                xfragmentTransaction.replace(R.id.containerView,tab).addToBackStack(null).commit();
+        }
+        else if (menuItem.getItemId() == R.id.nav_profile) {
+            FragmentTransaction fragmentTransaction = mFragmentManager.beginTransaction();
+            Fragment profile = new ProfileFragment();
+            Bundle args = new Bundle();
+            args.putParcelable("acct",acct);
+            profile.setArguments(args);
+            fragmentTransaction.replace(R.id.containerView, profile).addToBackStack(null).commit();
+        }
+        else if (menuItem.getItemId() == R.id.nav_reported) {
+            FragmentTransaction fragmentTransaction = mFragmentManager.beginTransaction();
+            fragmentTransaction.replace(R.id.containerView,new ReportedFragment()).addToBackStack(null).commit();
+        }
+
+        //Action Items
+        else if (menuItem.getItemId() == R.id.nav_settings) {
+            Intent i = new Intent(this, PreferencesActivity.class);
+            startActivity(i);
+        }
+
+        else if (menuItem.getItemId() == R.id.nav_feedback) {
+            DialogFragment newFragment = new FeedbackDialogFragment();
+            newFragment.show(getSupportFragmentManager(), "feedback");
+        }
+        else if (menuItem.getItemId() == R.id.nav_logout) {
+            logout();
+        }
+
+        DrawerLayout drawer = (DrawerLayout) findViewById(R.id.drawerLayout);
+        drawer.closeDrawer(GravityCompat.START);
+        return true;
+    }
+
+    private void logout(){
+        LoginActivity.clearCredential();
+        mGoogleApiClient.connect();
+        if (mGoogleApiClient.isConnected()) {
+            Auth.GoogleSignInApi.signOut(mGoogleApiClient).setResultCallback(
+                    new ResultCallback<Status>() {
+                        @Override
+                        public void onResult(Status status) {
+
+                            Intent intent = new Intent(context, LoginActivity.class);
+                            startActivity(intent);
+
+                        }
+                    });
+        }
+    }
+    private boolean checkPlayServices() {
+        GoogleApiAvailability apiAvailability = GoogleApiAvailability.getInstance();
+        int resultCode = apiAvailability.isGooglePlayServicesAvailable(this);
+        if (resultCode != ConnectionResult.SUCCESS) {
+            if (apiAvailability.isUserResolvableError(resultCode)) {
+                apiAvailability.getErrorDialog(this, resultCode, PLAY_SERVICES_RESOLUTION_REQUEST)
+                        .show();
+            } else {
+                Log.i(TAG, "This device is not supported.");
+                finish();
+            }
+            return false;
+        }
+        return true;
+    }
+}package com.nuig.trafficapp.activities;
+
+import android.os.Bundle;
+import android.preference.PreferenceActivity;
+import android.preference.PreferenceFragment;
+import android.support.v7.widget.Toolbar;
+import android.view.View;
+import com.nuig.trafficapp.R;
+
+/**
+ * Created by Dylan Toner on 01/03/2016.
+ */
+
+public class PreferencesActivity extends PreferenceActivity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        setContentView(R.layout.preference_layout);
+
+        Toolbar actionbar = (Toolbar) findViewById(R.id.toolbar);
+        actionbar.setTitle("Settings");
+        actionbar.setNavigationIcon(getResources().getDrawable(R.drawable.ic_arrow_back_white_24dp));
+        actionbar.setNavigationOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                PreferencesActivity.this.finish();
+            }
+        });
+
+        getFragmentManager().beginTransaction().replace(R.id.content_frame, new MyPreferenceFragment()).commit();
+    }
+
+    public static class MyPreferenceFragment extends PreferenceFragment
+    {
+        @Override
+        public void onCreate(final Bundle savedInstanceState)
+        {
+            super.onCreate(savedInstanceState);
+            addPreferencesFromResource(R.xml.preferences);
+            getActivity().setTheme(R.style.SettingsTheme);
+        }
+
+    }
+
+}
+package com.nuig.trafficapp.fragments;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.location.Location;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.support.annotation.Nullable;
+import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentManager;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.Spinner;
+import android.widget.Toast;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.maps.model.LatLng;
+import com.nuig.trafficapp.AccountHelper;
+import com.nuig.trafficapp.CloudEndpointBuilderHelper;
+import com.nuig.trafficapp.R;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+import com.nuig.trafficappbackend.trafficApp.model.GeoPt;
+import com.nuig.trafficappbackend.trafficApp.model.Incident;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Logger;
+
+/**
+ * Created by Dylan Toner on 29/01/2016.
+ */
+public class CreateIncidentFragment extends Fragment
+        implements
+        GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener{
+    private TrafficApp trafficAppAPI;
+    private Context c;
+    private String accountName;
+    GoogleApiClient mGoogleApiClient;
+    Location mLastLocation;
+    LatLng setCoords;
+    private final Logger log = Logger
+            .getLogger(CreateIncidentFragment.class.getName());
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+        c = getContext();
+        setCoords = null;
+        if (mGoogleApiClient == null) {
+            mGoogleApiClient = new GoogleApiClient.Builder(getContext())
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .addApi(LocationServices.API)
+                    .build();
+        }
+
+    }
+    @Nullable
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        View v= inflater.inflate(R.layout.create_incident_layout, null);
+
+        SharedPreferences settings = getActivity().getSharedPreferences("TrafficApp", 0);
+        accountName = settings.getString("accountName", null);
+
+        if(getArguments()!=null) {
+            Bundle args = getArguments();
+            if ((args.getParcelable("coords")) != null)
+                setCoords = args.getParcelable("coords");
+        }
+
+        //Get form elements
+        final EditText title = (EditText)v.findViewById(R.id.title_box);
+        final EditText description =(EditText) v.findViewById(R.id.description_box);
+
+        //Populate Severity Spinner
+        final Spinner severity = (Spinner) v.findViewById(R.id.severity_spinner);
+        List<String> severityList = new ArrayList<String>();
+        severityList.add("Low");
+        severityList.add("Medium");
+        severityList.add("High");
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(c, android.R.layout.simple_spinner_item, severityList);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        severity.setAdapter(adapter);
+
+        final Spinner category = (Spinner) v.findViewById(R.id.category_spinner);
+        List<String> categoryList = new ArrayList<String>();
+        categoryList.add("Accident");
+        categoryList.add("Congestion");
+        categoryList.add("Road Works");
+        categoryList.add("Weather");
+        categoryList.add("Road Closure");
+        categoryList.add("Obstruction");
+
+        adapter = new ArrayAdapter<String>(c, android.R.layout.simple_spinner_item, categoryList);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        category.setAdapter(adapter);
+
+        Button button = (Button) v.findViewById(R.id.submit_button);
+        button.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                //Create new incident
+                Incident temp = new Incident();
+                temp.setTitle(title.getText().toString());
+                temp.setDescription(description.getText().toString());
+                GeoPt current;
+                //set from map
+                if(setCoords!=null) {
+                    current = new GeoPt()
+                            .setLatitude((float) setCoords.latitude)
+                            .setLongitude((float) setCoords.longitude);
+                }
+                //set from current location
+                else{
+                    current = new GeoPt()
+                            .setLatitude((float) mLastLocation.getLatitude())
+                            .setLongitude((float) mLastLocation.getLongitude());
+                    }
+                temp.setLocation(current);
+                temp.setSeverity(severity.getSelectedItem().toString());
+                temp.setCategory(category.getSelectedItem().toString());
+                temp.setReportedBy(accountName);
+                if(temp.getTitle()==null||temp.getTitle().toString().equals("")){
+                    Toast toast = Toast.makeText(c, "Please enter a title", Toast.LENGTH_SHORT);
+                    toast.show();
+                }
+                else if(temp.getDescription()==null||temp.getDescription().toString().equals("")){
+                    Toast toast = Toast.makeText(c, "Please enter a description", Toast.LENGTH_SHORT);
+                    toast.show();
+                }
+                else if(temp.getLocation()==null||temp.getLocation().toString().equals("")){
+                    Toast toast = Toast.makeText(c, "Please enter a location", Toast.LENGTH_SHORT);
+                    toast.show();
+                }
+                else if(temp.getSeverity()==null||temp.getSeverity().toString().equals("")){
+                    Toast toast = Toast.makeText(c, "Please select severity", Toast.LENGTH_SHORT);
+                    toast.show();
+                }
+                else {
+                    //Send incident to backend datastore
+                    new InsertIncidentTask().execute(temp);
+                    //Return to live feed
+                    FragmentManager mFragmentManager = getActivity().getSupportFragmentManager();
+                    mFragmentManager.beginTransaction().replace(R.id.containerView, new TabFragment()).commit();
+                }
+            }
+        });
+
+        return v;
+    }
+    private class InsertIncidentTask extends AsyncTask<Incident, Void, Void> {
+
+        @Override
+        protected Void doInBackground(final Incident... params) {
+
+        Incident temp = params [0];
+            try {
+                trafficAppAPI.incidents().insertIncident(temp).execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+                log.severe("Exception=" + message);
+            }
+            return null;
+        }
+        @Override
+        protected void onPostExecute(Void v) {
+            AccountHelper ac = new AccountHelper();
+            ac.incrementIncidents(accountName);
+        }
+    }
+    @Override
+    public void onConnected(Bundle connectionHint) {
+        try {
+            mLastLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+        }
+        catch(SecurityException e){
+            log.severe("Exception:" +e.getMessage());
+        }
+
+    }
+
+    public void onStart() {
+        mGoogleApiClient.connect();
+        super.onStart();
+    }
+
+    public void onStop() {
+        mGoogleApiClient.disconnect();
+        super.onStop();
+    }
+    @Override
+    public void onConnectionFailed(ConnectionResult arg0) {
+
+    }
+    @Override
+    public void onConnectionSuspended(int i) {
+        // TODO Auto-generated method stub
+    }
+}
+package com.nuig.trafficapp.fragments;
+
+/**
+ * Created by Dylan Toner on 22/02/2016.
+ */
+
+import android.app.Dialog;
+import android.content.DialogInterface;
+import android.os.Bundle;
+import android.support.annotation.NonNull;
+import android.support.v4.app.DialogFragment;
+import android.support.v7.app.AlertDialog;
+
+public class FeedbackDialogFragment extends DialogFragment {
+    @NonNull
+    @Override
+    public Dialog onCreateDialog(Bundle savedInstanceState) {
+        // Use the Builder class for convenient dialog construction
+        AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
+        builder.setMessage("Please contact d.toner2@nuigalway.ie with feedback.")
+                .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int id) {
+                    }
+                });
+        // Create the AlertDialog object and return it
+        return builder.create();
+    }
+}
+package com.nuig.trafficapp.fragments;
+
+import android.content.Context;
+import android.os.Bundle;
+import android.support.annotation.Nullable;
+import android.support.design.widget.FloatingActionButton;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.app.ListFragment;
+import android.support.v4.widget.SwipeRefreshLayout;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ListView;
+import android.widget.TextView;
+import com.nuig.trafficapp.CloudEndpointBuilderHelper;
+import com.nuig.trafficapp.R;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+import com.nuig.trafficappbackend.trafficApp.model.Incident;
+import com.nuig.trafficapp.IncidentAdapter;
+import java.util.List;
+
+
+/**
+ * Created by Dylan Toner on 21/01/2016.
+ */
+public class FeedFragment extends ListFragment {
+    private List<Incident> mItems;
+    private TrafficApp trafficAppAPI;
+    private Context c;
+    private TextView emptyText;
+    SwipeRefreshLayout mSwipeRefreshLayout;
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        c = getContext();
+        trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+        refreshItems();
+}
+
+    public void setList(List<Incident> list)
+    {
+        mItems = list;
+        if(mItems!=null)
+            setListAdapter(new IncidentAdapter(getActivity(), mItems));
+    }
+    @Nullable
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        View v = inflater.inflate(R.layout.feed_layout,null);
+        emptyText = (TextView) v.findViewById(android.R.id.empty);
+
+        mSwipeRefreshLayout = (SwipeRefreshLayout) v.findViewById(R.id.refresh);
+        mSwipeRefreshLayout.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+            @Override
+            public void onRefresh() {
+                refreshItems();
+                mSwipeRefreshLayout.setRefreshing(false);
+            }
+        });
+
+
+        FloatingActionButton fab = (FloatingActionButton) v.findViewById(R.id.fab);
+        fab.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                FragmentManager mFragmentManager = getActivity().getSupportFragmentManager();
+                mFragmentManager.beginTransaction().replace(R.id.containerView, new CreateIncidentFragment()).addToBackStack(null).commit();
+            }
+        });
+        refreshItems();
+        return v;
+    }
+
+public void refreshItems(){
+    TabFragment fragment = (TabFragment) getActivity().getSupportFragmentManager().findFragmentById(R.id.containerView);
+    fragment.refreshItems();
+}
+    @Override
+    public void onListItemClick(ListView l, View v, int position, long id) {
+        Incident item = mItems.get(position);
+        IncidentDetailFragment fragment  = new IncidentDetailFragment();
+        fragment.setCurrentIncident(item);
+        FragmentManager mFragmentManager = getActivity().getSupportFragmentManager();
+        fragment.show(mFragmentManager, "Details");
+    }
+}
+package com.nuig.trafficapp.fragments;
+
+import android.app.Dialog;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.SharedPreferences;
+import android.location.Address;
+import android.location.Geocoder;
+import android.os.AsyncTask;
+import android.os.Build;
+import android.os.Bundle;
+import android.speech.tts.TextToSpeech;
+import android.support.annotation.NonNull;
+import android.support.v4.app.DialogFragment;
+import android.support.v4.app.Fragment;
+import android.support.v7.app.AlertDialog;
+import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.widget.TextView;
+import android.widget.Toast;
+import com.nuig.trafficapp.CloudEndpointBuilderHelper;
+import com.nuig.trafficapp.R;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+import com.nuig.trafficappbackend.trafficApp.model.GeoPt;
+import com.nuig.trafficappbackend.trafficApp.model.Incident;
+import com.nuig.trafficappbackend.trafficApp.model.UserAccount;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Created by Dylan Toner on 29/01/2016.
+ */
+public class IncidentDetailFragment extends DialogFragment implements TextToSpeech.OnInitListener {
+    private Incident currentIncident;
+    private Context c;
+    private String accountName;
+    private TrafficApp trafficAppAPI;
+    private TextToSpeech engine;
+    private String strAddress;
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        c = getContext();
+        trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+        SharedPreferences settings = getActivity().getSharedPreferences("TrafficApp", 0);
+        accountName = settings.getString("accountName", null);
+        engine = new TextToSpeech(c, this);
+    }
+    public void setCurrentIncident(Incident incident)
+    {
+        this.currentIncident = incident;
+    }
+
+    @Override
+    public void onInit(int status) {
+        if (status == TextToSpeech.SUCCESS) {
+            engine.setLanguage(Locale.UK);
+        }
+    }
+
+
+    @NonNull
+    @Override
+    public Dialog onCreateDialog(Bundle savedInstanceState) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
+        // Get the layout inflater
+        LayoutInflater inflater = getActivity().getLayoutInflater();
+        View v = inflater.inflate(R.layout.incident_detail_layout, null);
+
+        TextView timestamp = (TextView) v.findViewById(R.id.incident_time);
+        if(currentIncident.getTimestamp()!=null) {
+            Date d = new Date(currentIncident.getTimestamp().getValue());
+            SimpleDateFormat format = new SimpleDateFormat("HH:mm a, dd MMM");
+            String date = format.format(d);
+            timestamp.setText(date);
+        }
+        else
+            timestamp.setText("Unknown");
+
+        TextView submittedBy = (TextView) v.findViewById(R.id.submittedBy);
+        if(currentIncident.getReportedBy()!=null)
+            submittedBy.setText(currentIncident.getReportedBy());
+
+        TextView severity = (TextView) v.findViewById(R.id.severity);
+        if(currentIncident.getSeverity()!=null)
+            severity.setText(currentIncident.getSeverity());
+
+        TextView category = (TextView) v.findViewById(R.id.category);
+        if(currentIncident.getCategory()!=null)
+            category.setText(currentIncident.getCategory());
+
+        TextView details = (TextView) v.findViewById(R.id.details);
+        if(currentIncident.getDescription()!=null)
+            details.setText(currentIncident.getDescription());
+
+        TextView trustRating = (TextView) v.findViewById(R.id.incident_trust);
+        if(currentIncident.getTrustScore()!=null)
+            if(currentIncident.getTrustScore()<0)
+                trustRating.setText(R.string.admin_confirmed);
+            else if(currentIncident.getTrustScore()<25){
+                trustRating.setText(R.string.status_unconfirmed);
+                trustRating.append(" ("+currentIncident.getTrustScore().toString()+")");}
+            else if(currentIncident.getTrustScore()>=25 && currentIncident.getTrustScore()<50){
+                trustRating.setText(R.string.status_semi_confirmed);
+                trustRating.append(" ("+currentIncident.getTrustScore().toString()+")");}
+            else if(currentIncident.getTrustScore()>50){
+                trustRating.setText(R.string.status_confirmed);
+                trustRating.append(" ("+currentIncident.getTrustScore().toString()+")");}
+
+
+        Geocoder gc = new Geocoder(c);
+        TextView location = (TextView) v.findViewById(R.id.location);
+        if(gc.isPresent()){
+            try {
+                GeoPt temp = currentIncident.getLocation();
+                List<Address> list = gc.getFromLocation(temp.getLatitude(), temp.getLongitude(), 1);
+                Address address = list.get(0);
+
+                StringBuffer str = new StringBuffer();
+                if(address.getThoroughfare()!=null)
+                    str.append(address.getThoroughfare() + ", ");
+
+                if(address.getLocality()!=null)
+                    str.append(address.getLocality());
+                else
+                    str.append(address.getAdminArea());
+                strAddress = str.toString();
+                location.setText(strAddress);
+            }catch (IOException e){
+
+            }
+        }
+        // Inflate and set the layout for the dialog
+        // Pass null as the parent view because its going in the dialog layout
+
+        //Cannot verify own incident
+        if(currentIncident.getReportedBy().equals(accountName)){
+            builder.setView(v)
+                    // Add action buttons
+                    .setTitle(currentIncident.getTitle())
+                    .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int id) {
+                            IncidentDetailFragment.this.getDialog().cancel();
+                        }
+                    }).setNegativeButton("Delete", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface dialog, int id) {
+                    new DeleteIncidentTask().execute(currentIncident.getIncidentId());
+                    //TabFragment fragment = (TabFragment) getActivity().getSupportFragmentManager().findFragmentById(R.id.containerView);
+                    //fragment.refreshItems();
+                    Toast.makeText(c, "Incident Deleted", Toast.LENGTH_SHORT).show();
+                }
+            }).setNeutralButton("Speak", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface dialog, int id) {
+                    String toSpeak = currentIncident.getTitle()+ ".. " + currentIncident.getDescription() + ".. at. " + strAddress;
+                    if(Build.VERSION.SDK_INT >= 21)
+                        engine.speak(toSpeak, TextToSpeech.QUEUE_FLUSH, null, null);
+                }
+            });
+        }
+        //Cant verify if already confirmed by admin
+        else if(currentIncident.getTrustScore()<0){
+            builder.setView(v)
+                    // Add action buttons
+                    .setTitle(currentIncident.getTitle())
+                    .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int id) {
+                            IncidentDetailFragment.this.getDialog().cancel();
+                        }
+                    }).setNeutralButton("Speak", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int id) {
+                    String toSpeak = currentIncident.getTitle()+ ".. " + currentIncident.getDescription() + ".. at. " + strAddress;
+                    if(Build.VERSION.SDK_INT >= 21)
+                        engine.speak(toSpeak, TextToSpeech.QUEUE_FLUSH, null, null);
+                }
+
+            });
+        }
+        else {
+            builder.setView(v)
+                    // Add action buttons
+                    .setTitle(currentIncident.getTitle())
+                    .setPositiveButton("Verify", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int id) {
+                            new VerifyTask().execute(currentIncident);
+
+                        }
+                    })
+                    .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface dialog, int id) {
+                            IncidentDetailFragment.this.getDialog().cancel();
+                        }
+                    }).setNeutralButton("Speak", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface dialog, int id) {
+                    String toSpeak = currentIncident.getTitle()+ ".. " + currentIncident.getDescription() + ".. at. " + strAddress;
+
+                    if(Build.VERSION.SDK_INT >= 21)
+                        engine.speak(toSpeak, TextToSpeech.QUEUE_FLUSH, null, null);
+                }
+            });
+        }
+        return builder.create();
+    }
+    private class VerifyTask extends AsyncTask<Incident, Void, Void> {
+
+        @Override
+        protected Void doInBackground(final Incident... params) {
+
+            Incident inc =  params [0];
+            String email = inc.getReportedBy();
+            try {
+                UserAccount temp = trafficAppAPI.userAccounts().getUserAccount(email).execute();
+                int rep = temp.getReputation();
+                int weight = 1;
+                if (rep <= 10)
+                    weight = 5;
+                else if (rep > 10 && rep <= 20)
+                    weight = 10;
+                else if (rep > 20 && rep <= 30)
+                    weight = 15;
+                else if (rep > 30 && rep <= 40)
+                    weight = 20;
+                else if (rep > 40 && rep <= 50)
+                    weight = 25;
+                else if (rep > 50)
+                    weight = 30;
+
+                List<String> verified = inc.getVerifiedBy();
+                if(verified==null || !(verified.contains(accountName))) {
+                    inc.setTrustScore(inc.getTrustScore()+weight);
+                    temp.setReputation(rep + 1);
+                    trafficAppAPI.incidents().updateIncident(inc).execute();
+                    trafficAppAPI.userAccounts().updateUserAcount(temp).execute();
+                    //Toast.makeText(getContext(), "Incident Verified", Toast.LENGTH_SHORT).show();
+                }
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+                //log.severe("Exception=" + message);
+            }
+            return null;
+        }
+
+    }
+    private class DeleteIncidentTask extends AsyncTask<Long, Void, Void> {
+
+        @Override
+        protected Void doInBackground(final Long... params) {
+            Long incidentId = params [0];
+
+            try {
+                trafficAppAPI.incidents().removeIncident(incidentId).execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+
+            }
+            return null;
+        }
+    }
+}
+package com.nuig.trafficapp.fragments;
+
+import android.location.Location;
+import android.os.Bundle;
+import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentManager;
+import android.view.InflateException;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ImageView;
+import android.widget.Toast;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.maps.CameraUpdate;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.GoogleMap;
+import com.google.android.gms.maps.MapsInitializer;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
+import com.google.android.gms.maps.model.CameraPosition;
+import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.maps.model.MarkerOptions;
+import com.nuig.trafficapp.CloudEndpointBuilderHelper;
+import com.nuig.trafficapp.R;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+import com.nuig.trafficappbackend.trafficApp.model.GeoPt;
+import com.nuig.trafficappbackend.trafficApp.model.Incident;
+import java.util.List;
+import java.util.logging.Logger;
+
+/**
+ * Created by Dylan Toner on 21/01/2016.
+ */
+public class MapFragment extends Fragment
+        implements
+        GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener,
+        LocationListener,
+        GoogleMap.OnInfoWindowClickListener,
+        GoogleMap.OnMapClickListener,
+        GoogleMap.OnMarkerClickListener{
+    private GoogleMap map;
+    private LocationRequest lr;
+    private GoogleApiClient mGoogleApiClient;
+    private com.google.android.gms.maps.MapFragment mapFragment;
+    private ImageView iv;
+    private Location mCurrentLocation;
+    private Location mLastLocation;
+    private static View view;
+    private List<Incident> mItems;
+    private TrafficApp trafficAppAPI;
+    Marker posMarker;
+    private final Logger log = Logger.getLogger(MapFragment.class.getName());
+
+
+    public MapFragment() {
+    }
+
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container,
+                             Bundle savedInstanceState) {
+
+        if (view != null) {
+            ViewGroup parent = container;
+            if (parent != null)
+                parent.removeView(view);
+        }
+
+        try {
+            view = inflater.inflate(R.layout.map_layout, container, false);
+
+        }
+        catch (InflateException e) {
+            Toast.makeText(getActivity(), "Problems inflating the view !", Toast.LENGTH_LONG).show();
+            TabFragment fragment = (TabFragment) getActivity().getSupportFragmentManager().findFragmentById(R.id.containerView);
+            List<Fragment> content = fragment.getChildFragmentManager().getFragments();
+            fragment.getChildFragmentManager().beginTransaction().remove(content.get(1));
+            onCreateView(inflater,container,savedInstanceState);
+        }
+        catch (NullPointerException e) {
+            Toast.makeText(getActivity(), "Google Play Services missing !", Toast.LENGTH_LONG).show();
+        }
+        //refreshItems();
+        return view;
+    }
+
+    public void refreshItems(List<Incident> list){
+        mItems = list;
+        updateUI(mCurrentLocation);
+    }
+
+    public void initializeMap() {
+        mapFragment = ((com.google.android.gms.maps.MapFragment) this.getActivity().getFragmentManager().findFragmentById(R.id.map));
+        iv = (ImageView) view.findViewById(R.id.iv);
+
+        map = mapFragment.getMap();
+        map.getUiSettings().setAllGesturesEnabled(true);
+        map.getUiSettings().setMyLocationButtonEnabled(false);
+        try{
+        map.setMyLocationEnabled(true);}
+        catch(SecurityException e){
+            log.severe("Exception: " + e.getMessage());
+        }
+
+        map.getUiSettings().setZoomControlsEnabled(true);
+        map.setOnInfoWindowClickListener(this);
+        map.setOnMapClickListener(this);
+        map.setOnMarkerClickListener(this);
+        MapsInitializer.initialize(this.getActivity());
+    }
+
+    @Override
+    public void onMapClick(final LatLng latLng)
+    {
+        if (posMarker != null) {
+            posMarker.remove();
+        }
+        posMarker = map.addMarker(new MarkerOptions()
+                .position(latLng)
+                .icon(BitmapDescriptorFactory.fromResource(R.drawable.map_icon_large))
+                .title("New Incident"));
+    }
+
+    @Override
+    public boolean onMarkerClick(Marker marker)
+    {
+        if(marker.getTitle().equals("New Incident")){
+            FragmentManager mFragmentManager = getActivity().getSupportFragmentManager();
+            Fragment newIncident = new CreateIncidentFragment();
+            Bundle args = new Bundle();
+            LatLng latLng = marker.getPosition();
+            args.putParcelable("coords", latLng);
+            newIncident.setArguments(args);
+            mFragmentManager.beginTransaction().replace(R.id.containerView,newIncident ).addToBackStack(null).commit();
+        }
+        else
+            marker.showInfoWindow();
+
+        return true;
+    }
+    @Override
+    public void onInfoWindowClick(final Marker marker) {
+        for (Incident i: mItems) {
+            if (marker.getTitle().equals(i.getTitle().toString())) {
+                IncidentDetailFragment fragment = new IncidentDetailFragment();
+                fragment.setCurrentIncident(i);
+                FragmentManager mFragmentManager = getActivity().getSupportFragmentManager();
+                fragment.show(mFragmentManager,"Details");
+            }
+        }
+    }
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        lr = LocationRequest.create();
+        trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+        lr.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+        if (mGoogleApiClient == null) {
+            mGoogleApiClient = new GoogleApiClient.Builder(getContext())
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .addApi(LocationServices.API)
+                    .build();
+        }
+    }
+
+    @Override
+    public void onLocationChanged(Location loc) {
+        CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(new LatLng(loc.getLatitude(), loc.getLongitude()), 15);
+        map.animateCamera(cameraUpdate);
+        this.mCurrentLocation = loc;
+        updateUI(mCurrentLocation);
+        TabFragment fragment = (TabFragment) getActivity().getSupportFragmentManager().findFragmentById(R.id.containerView);
+        fragment.setLocation(mCurrentLocation);
+    }
+
+    private void updateUI(Location loc)
+    {
+        if (loc != null && map!=null) {
+            LatLng lat = new LatLng(loc.getLatitude(), loc.getLongitude());
+
+            map.clear();
+            if(mItems!=null) {
+                for (Incident i : mItems) {
+                    GeoPt g = i.getLocation();
+                    LatLng latLng = new LatLng(g.getLatitude(), g.getLongitude());
+                    MarkerOptions marker = new MarkerOptions().position(latLng).title(i.getTitle().toString());
+                    marker.icon(BitmapDescriptorFactory.fromResource(chooseIcon(i)));
+                    map.addMarker(marker);
+                }
+            }
+            CameraPosition cameraPosition = new CameraPosition.Builder().target(lat).zoom(14).build();
+            map.animateCamera(CameraUpdateFactory.newCameraPosition(cameraPosition));
+        }
+    }
+    private int chooseIcon (Incident i){
+        int icon= R.drawable.ic_hazard_yellow;
+        if(i.getSeverity().equals("Low"))
+        {
+            if(i.getCategory().equals("Accident"))
+                icon = R.drawable.yellow_accident;
+            else if(i.getCategory().equals("Congestion"))
+                icon = R.drawable.yellow_congestion;
+            else if(i.getCategory().equals("Road Works"))
+                icon = R.drawable.yellow_road_works;
+            else if(i.getCategory().equals("Weather"))
+                icon = R.drawable.yellow_flood;
+            else if(i.getCategory().equals("Road Closure"))
+                icon = R.drawable.yellow_road_closed;
+            else if(i.getCategory().equals("Obstruction"))
+                icon = R.drawable.yellow_blockage;
+        }
+        else if(i.getSeverity().equals("Medium")){
+            if(i.getCategory().equals("Accident"))
+                icon = R.drawable.amber_accident;
+            else if(i.getCategory().equals("Congestion"))
+                icon = R.drawable.amber_congestion;
+            else if(i.getCategory().equals("Road Works"))
+                icon = R.drawable.amber_road_works;
+            else if(i.getCategory().equals("Weather"))
+                icon = R.drawable.amber_flood;
+            else if(i.getCategory().equals("Road Closure"))
+                icon = R.drawable.amber_road_closed;
+            else if(i.getCategory().equals("Obstruction"))
+                icon = R.drawable.amber_blockage;
+        }
+        else if(i.getSeverity().equals("High")){
+            if(i.getCategory().equals("Accident"))
+                icon = R.drawable.red_accident;
+            else if(i.getCategory().equals("Congestion"))
+                icon = R.drawable.red_congestion;
+            else if(i.getCategory().equals("Road Works"))
+                icon = R.drawable.red_road_works;
+            else if(i.getCategory().equals("Weather"))
+                icon = R.drawable.red_flood;
+            else if(i.getCategory().equals("Road Closure"))
+                icon = R.drawable.red_road_closed;
+            else if(i.getCategory().equals("Obstruction"))
+                icon = R.drawable.red_blockage;
+        }
+        return icon;
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult arg0) {
+        // TODO Auto-generated method stub
+    }
+
+    @Override
+    public void onConnected(Bundle connectionHint) {
+        try{
+            mLastLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+            startLocationUpdates();
+            TabFragment fragment = (TabFragment) getActivity().getSupportFragmentManager().findFragmentById(R.id.containerView);
+            fragment.setLocation(mLastLocation);
+            updateUI(mLastLocation);}
+        catch(SecurityException e){
+            log.severe("Exception: " + e.getMessage());
+            }
+
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+        // TODO Auto-generated method stub
+    }
+
+    @Override
+    public void onStart() {
+        mGoogleApiClient.connect();
+        initializeMap();
+        super.onStart();
+    }
+    @Override
+    public void onStop(){
+        mGoogleApiClient.disconnect();
+        super.onStop();
+    }
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (mGoogleApiClient.isConnected()) {
+            startLocationUpdates();
+        }
+    }
+    @Override
+    public void onPause() {
+        super.onPause();
+        stopLocationUpdates();
+    }
+
+    private void startLocationUpdates() {
+        try {
+            if(mGoogleApiClient.isConnected())
+                LocationServices.FusedLocationApi.requestLocationUpdates(mGoogleApiClient, lr, this);
+        }
+        catch(SecurityException e){
+            log.severe("Exception: " + e.getMessage());
+        }
+
+    }
+    protected void stopLocationUpdates() {
+        if(mGoogleApiClient.isConnected())
+            LocationServices.FusedLocationApi.removeLocationUpdates(mGoogleApiClient, this);
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        mapFragment = ((com.google.android.gms.maps.MapFragment) this.getActivity().getFragmentManager().findFragmentById(R.id.map));
+        if (mapFragment != null)
+            this.getActivity().getFragmentManager().beginTransaction().remove(mapFragment).commit();
+    }
+}package com.nuig.trafficapp.fragments;
+
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.support.annotation.Nullable;
+import android.support.v4.app.Fragment;
+import android.util.Log;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.TextView;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.common.api.Status;
+import com.nuig.trafficapp.AccountHelper;
+import com.nuig.trafficapp.CloudEndpointBuilderHelper;
+import com.nuig.trafficapp.R;
+import com.nuig.trafficapp.activities.LoginActivity;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+import com.nuig.trafficappbackend.trafficApp.model.UserAccount;
+import java.io.IOException;
+import java.io.InputStream;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
+import static com.google.android.gms.auth.api.Auth.GOOGLE_SIGN_IN_API;
+import static com.google.android.gms.auth.api.Auth.GoogleSignInApi;
+
+/**
+ * Created by Dylan Toner on 10/02/2016.
+ */
+public class ProfileFragment extends Fragment implements GoogleApiClient.OnConnectionFailedListener{
+
+    private TrafficApp trafficAppAPI;
+    private UserAccount userAccount;
+    private TextView name;
+    private TextView dateJoined;
+    private TextView incidents;
+    private TextView trust;
+    private ImageView profilePic;
+    private GoogleSignInAccount acct;
+    private String photoUrl;
+
+    @Nullable
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        View v =  inflater.inflate(R.layout.profile_layout,null);
+        Bundle args = getArguments();
+        if(args!=null)
+            acct=args.getParcelable("acct");
+        if(acct!=null)
+            new GetUserAccountTask().execute(acct.getEmail());
+        trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+        name = (TextView) v.findViewById(R.id.name);
+        dateJoined = (TextView) v.findViewById(R.id.dateJoined);
+        incidents = (TextView) v.findViewById(R.id.incidents);
+        trust = (TextView) v.findViewById(R.id.trust);
+        profilePic = (ImageView) v.findViewById(R.id.profilePic);
+
+        return v;
+    }
+
+    @Override
+    public void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+    }
+
+    private void updateUI(UserAccount usr){
+        if(usr!=null && acct!=null) {
+
+            name.append(acct.getDisplayName());
+            Date d = new Date(usr.getDateJoined().getValue());
+            SimpleDateFormat format = new SimpleDateFormat("dd/MM/yyyy");
+            String date = format.format(d);
+            if(acct.getPhotoUrl()!=null)
+                photoUrl = acct.getPhotoUrl().toString();
+            dateJoined.append(date);
+            trust.append(usr.getReputation().toString());
+            incidents.append(usr.getNumIncidents().toString());
+            if(photoUrl!=null)
+                new LoadProfileImage(profilePic).execute(photoUrl);
+        }
+    }
+    private class GetUserAccountTask extends AsyncTask<String, Void, UserAccount> {
+
+        @Override
+        protected UserAccount doInBackground(final String... params) {
+            if(trafficAppAPI==null)
+                trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+            String email = params [0];
+            UserAccount temp = null;
+            try {
+                temp = trafficAppAPI.userAccounts().getUserAccount(email).execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+            }
+            userAccount = temp;
+            return temp;
+        }
+        @Override
+        protected void onPostExecute(final UserAccount result) {
+            updateUI(result);
+        }
+    }
+
+    private class LoadProfileImage extends AsyncTask<String, Void, Bitmap> {
+        ImageView bmImage;
+
+        public LoadProfileImage(ImageView bmImage) {
+            this.bmImage = bmImage;
+        }
+
+        protected Bitmap doInBackground(String... urls) {
+            String urldisplay = urls[0];
+            Bitmap mIcon11 = null;
+            try {
+                InputStream in = new java.net.URL(urldisplay).openStream();
+                mIcon11 = BitmapFactory.decodeStream(in);
+            } catch (Exception e) {
+                Log.e("Error", e.getMessage());
+                e.printStackTrace();
+            }
+            return mIcon11;
+        }
+
+        protected void onPostExecute(Bitmap result) {
+            bmImage.setImageBitmap(result);
+        }
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+
+    }
+}
+package com.nuig.trafficapp.fragments;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.content.res.Resources;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.support.annotation.Nullable;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.app.ListFragment;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ListView;
+import android.widget.TextView;
+import com.nuig.trafficapp.CloudEndpointBuilderHelper;
+import com.nuig.trafficapp.R;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+import com.nuig.trafficappbackend.trafficApp.model.Incident;
+import com.nuig.trafficapp.IncidentAdapter;
+import com.nuig.trafficappbackend.trafficApp.model.IncidentCollection;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Logger;
+
+/**
+ * Created by Dylan Toner on 10/02/2016.
+ */
+public class ReportedFragment extends ListFragment {
+    private List<Incident> mItems;
+    private TrafficApp trafficAppAPI;
+    private Context c;
+    private TextView emptyText;
+    private String accountName;
+    private String displayName;
+    private TextView title;
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        Resources resources = getResources();
+        mItems = new ArrayList<Incident>();
+        c = getContext();
+        trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+
+        // Retrieve List of incidents
+        new ListOfIncidentsAsyncRetriever().execute();
+
+    }
+
+    public void setList(List<Incident> list)
+    {
+        mItems = list;
+        setListAdapter(new IncidentAdapter(getActivity(), mItems));
+    }
+    @Nullable
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        View v = inflater.inflate(R.layout.reported_layout,null);
+        SharedPreferences settings = getActivity().getSharedPreferences("TrafficApp", 0);
+        accountName = settings.getString("accountName", null);
+        displayName = settings.getString("displayName",null);
+        emptyText = (TextView) v.findViewById(android.R.id.empty);
+        title = (TextView) v.findViewById(android.R.id.title);
+        title.append(displayName);
+
+        return v;
+    }
+
+
+    @Override
+    public void onListItemClick(ListView l, View v, int position, long id) {
+        // retrieve theListView item
+        Incident item = mItems.get(position);
+        IncidentDetailFragment fragment  = new IncidentDetailFragment();
+        fragment.setCurrentIncident(item);
+        FragmentManager mFragmentManager = getActivity().getSupportFragmentManager();
+        fragment.show(mFragmentManager,"Details");
+
+
+    }
+
+    private class ListOfIncidentsAsyncRetriever extends AsyncTask<Void, Void, IncidentCollection> {
+
+        private final Logger log = Logger.getLogger(ListOfIncidentsAsyncRetriever.class.getName());
+
+        @Override
+        protected void onPostExecute(final IncidentCollection result) {
+            //getActivity().setProgressBarIndeterminateVisibility(false);
+            if (result == null || result.getItems() == null
+                    || result.getItems().size() < 1) {
+                if (result == null) {
+                    emptyText.setText(R.string.feed_error);
+                } else {
+                    emptyText.setText(R.string.feed_empty);
+                }
+                return;
+            }
+            List<Incident> temp = result.getItems();
+            for(Incident i : temp){
+                if(i.getReportedBy().equals(accountName))
+                    mItems.add(i);
+            }
+
+            setListAdapter(new IncidentAdapter(getActivity(), mItems));
+        }
+
+        @Override
+        protected IncidentCollection doInBackground(final Void... params) {
+
+            IncidentCollection result;
+
+            try {
+                result = trafficAppAPI.incidents().listIncidents().execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+                log.severe("Exception=" + message);
+                result = null;
+            }
+            return result;
+        }
+
+    }
+}
+package com.nuig.trafficapp.fragments;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.location.Location;
+import android.os.AsyncTask;
+import android.os.Bundle;
+import android.preference.PreferenceManager;
+import android.support.annotation.Nullable;
+import android.support.design.widget.TabLayout;
+import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentManager;
+import android.support.v4.app.FragmentPagerAdapter;
+import android.support.v4.view.ViewPager;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import com.nuig.trafficapp.CloudEndpointBuilderHelper;
+import com.nuig.trafficapp.R;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+import com.nuig.trafficappbackend.trafficApp.model.GeoPt;
+import com.nuig.trafficappbackend.trafficApp.model.Incident;
+import com.nuig.trafficappbackend.trafficApp.model.IncidentCollection;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.logging.Logger;
+
+/**
+ * Created by Dylan Toner on 19/01/2016.
+ */
+public class TabFragment extends Fragment {
+
+    public static TabLayout tabLayout;
+    public static ViewPager viewPager;
+    public static int int_items = 2 ;
+    private TrafficApp trafficAppAPI;
+    private Context c;
+    private List<Incident> mItems;
+    private Location location;
+    private SharedPreferences sharedPreferences;
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        c = getContext();
+        trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+        location = new Location("Default");
+        // Retrieve List of incidents
+        sharedPreferences = PreferenceManager.getDefaultSharedPreferences(c);
+        refreshItems();
+
+    }
+    @Nullable
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        View v =  inflater.inflate(R.layout.tab_layout,null);
+        tabLayout = (TabLayout) v.findViewById(R.id.tabs);
+        viewPager = (ViewPager) v.findViewById(R.id.viewpager);
+        viewPager.setAdapter(new MyAdapter(getChildFragmentManager()));
+
+        tabLayout.post(new Runnable() {
+            @Override
+            public void run() {
+                tabLayout.setupWithViewPager(viewPager);
+            }
+        });
+        refreshItems();
+        return v;
+
+    }
+
+    class MyAdapter extends FragmentPagerAdapter {
+
+        public MyAdapter(FragmentManager fm) {
+            super(fm);
+        }
+
+        @Override
+        public Fragment getItem(int position)
+        {
+            Fragment feed = new FeedFragment();
+            Fragment map = new MapFragment();
+            switch (position){
+              case 0 : return feed;
+              case 1 : return map;
+
+            }
+            return null;
+        }
+
+        @Override
+        public int getCount() {
+            return int_items;
+        }
+
+        @Override
+        public CharSequence getPageTitle(int position) {
+            switch (position){
+                case 0 :
+                    return "Live Feed";
+                case 1 :
+                    return "Map";
+            }
+            return null;
+        }
+    }
+
+    public void setLocation(Location loc){
+        this.location = loc;
+    }
+
+    public void refreshItems()
+    {
+        new ListOfIncidentsAsyncRetriever().execute();
+    }
+
+    public static double distFrom(double lat1, double lng1, double lat2, double lng2) {
+        double earthRadius = 6371;
+        double dLat = Math.toRadians(lat2-lat1);
+        double dLng = Math.toRadians(lng2-lng1);
+        double sindLat = Math.sin(dLat / 2);
+        double sindLng = Math.sin(dLng / 2);
+        double a = Math.pow(sindLat, 2) + Math.pow(sindLng, 2)
+                * Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2));
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        double dist = earthRadius * c;
+
+        return dist;
+    }
+    private class ListOfIncidentsAsyncRetriever extends AsyncTask<Void, Void, IncidentCollection> {
+
+        private final Logger log = Logger.getLogger(ListOfIncidentsAsyncRetriever.class.getName());
+
+        @Override
+        protected void onPostExecute(final IncidentCollection result) {
+            //getActivity().setProgressBarIndeterminateVisibility(false);
+            if (result == null || result.getItems() == null
+                    || result.getItems().size() < 1) {
+                return;
+            }
+            List<Incident> temp = result.getItems();
+            Collections.sort(temp, new Comparator<Incident>() {
+                @Override
+                public int compare(Incident lhs, Incident rhs) {
+                    if (lhs.getTimestamp().getValue() < rhs.getTimestamp().getValue())
+                        return 1;
+                    else if (lhs.getTimestamp().getValue() > rhs.getTimestamp().getValue())
+                        return -1;
+                    return 0;
+                }
+            });
+            double preferedDist  = sharedPreferences.getInt("radius",40);
+            mItems = new ArrayList<Incident>();
+            for(Incident i: temp){
+                if(i.getLocation()!=null) {
+                    GeoPt dest = i.getLocation();
+                    if (distFrom(dest.getLatitude(), dest.getLongitude(),
+                            location.getLatitude(), location.getLongitude()) <= preferedDist) {
+                        mItems.add(i);
+                    }
+                }
+            }
+
+            List<Fragment> content = getChildFragmentManager().getFragments();
+            FeedFragment feed;
+            MapFragment map;
+            if(content!=null) {
+                if (content.get(0) instanceof FeedFragment)
+                    feed = (FeedFragment) content.get(0);
+                else
+                    feed = (FeedFragment) content.get(1);
+
+                if (content.get(1) instanceof MapFragment)
+                    map = (MapFragment) content.get(1);
+                else
+                    map = (MapFragment) content.get(0);
+
+                feed.setList(mItems);
+                map.refreshItems(mItems);
+            }
+        }
+
+        @Override
+        protected IncidentCollection doInBackground(final Void... params) {
+
+            IncidentCollection result;
+
+            try {
+                //Call to backend method
+                result = trafficAppAPI.incidents().listIncidents().execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+                log.severe("Exception=" + message);
+                result = null;
+            }
+            return result;
+        }
+    }
+}
+package com.nuig.trafficapp;
+
+import android.content.Context;
+import android.os.AsyncTask;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+import com.nuig.trafficappbackend.trafficApp.model.UserAccount;
+import java.io.IOException;
+import java.util.logging.Logger;
+
+/**
+ * Created by Dylan Toner on 20/02/2016.
+ */
+public class AccountHelper {
+    private TrafficApp trafficAppAPI;
+    private final Logger log = Logger.getLogger(AccountHelper.class.getName());
+    //Constructor
+    public AccountHelper(){
+        trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+    }
+
+
+    public void addAccount(String email,String dispName){
+        ParamList params = new ParamList(email,dispName);
+
+        new InsertUserAccountTask().execute(params);
+
+    }
+
+    public void removeAccount(String email){
+
+        new DeleteUserAccountTask().execute(email);
+
+    }
+    public UserAccount getAccount(String email){
+        UserAccount usr = null;
+        try {
+            usr = new GetAccountTask().execute(email).get();
+        }
+        catch (Exception e){
+
+        }
+        return usr;
+    }
+    public void incrementReputation(String email)
+    {
+        new IncrementReputationTask().execute(email);
+    }
+
+    public void incrementIncidents(String email)
+    {
+        new IncrementIncidentsTask().execute(email);
+    }
+
+    private class InsertUserAccountTask extends AsyncTask<ParamList, Void, Void> {
+
+        @Override
+        protected Void doInBackground(final ParamList... params) {
+
+            ParamList paramList = params [0];
+            String email = paramList.email;
+            String dispName = paramList.dispName;
+            try {
+                trafficAppAPI.userAccounts().addUserAccount(email,dispName).execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+                log.severe("Exception=" + message);
+            }
+            return null;
+        }
+    }
+    private class DeleteUserAccountTask extends AsyncTask<String, Void, Void> {
+
+        @Override
+        protected Void doInBackground(final String... params) {
+
+            String email = params [0];
+
+            try {
+                trafficAppAPI.userAccounts().removeUserAccount(email).execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+                log.severe("Exception=" + message);
+            }
+            return null;
+        }
+    }
+    private class IncrementIncidentsTask extends AsyncTask<String, Void, UserAccount> {
+
+        @Override
+        protected UserAccount doInBackground(final String... params) {
+
+            String email = params [0];
+            UserAccount temp = null;
+            try {
+                temp = trafficAppAPI.userAccounts().getUserAccount(email).execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+                log.severe("Exception=" + message);
+            }
+            return temp;
+        }
+
+        @Override
+        protected void onPostExecute(final UserAccount result) {
+            result.setNumIncidents((result.getNumIncidents() + 1));
+            new UpdateAccountTask().execute(result);
+        }
+    }
+    private class IncrementReputationTask extends AsyncTask<String, Void, UserAccount> {
+
+        @Override
+        protected UserAccount doInBackground(final String... params) {
+            if(trafficAppAPI==null)
+                trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+            String email = params [0];
+            UserAccount temp = null;
+            try {
+                temp = trafficAppAPI.userAccounts().getUserAccount(email).execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+                log.severe("Exception=" + message);
+            }
+            return temp;
+        }
+
+        @Override
+        protected void onPostExecute(final UserAccount result) {
+            if(result!=null) {
+                result.setReputation((result.getReputation() + 1));
+                new UpdateAccountTask().execute(result);
+            }
+        }
+    }
+
+    private class UpdateAccountTask extends AsyncTask<UserAccount, Void, Void> {
+
+        @Override
+        protected Void doInBackground(final UserAccount... params) {
+            UserAccount temp = params [0];
+            try {
+                trafficAppAPI.userAccounts().updateUserAcount(temp).execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+                log.severe("Exception=" + message);
+            }
+            return null;
+        }
+    }
+
+    private class GetAccountTask extends AsyncTask<String, Void, UserAccount> {
+
+        @Override
+        protected UserAccount doInBackground(final String... params) {
+
+            String email = params [0];
+            UserAccount temp = null;
+            try {
+                temp = trafficAppAPI.userAccounts().getUserAccount(email).execute();
+            } catch (IOException e) {
+                String message = e.getMessage();
+                if (message == null) {
+                    message = e.toString();
+                }
+                log.severe("Exception=" + message);
+            }
+            return temp;
+        }
+    }
+
+    private class ParamList{
+        public String email;
+        public String dispName;
+
+        public ParamList(String email,String name){
+            this.email = email;
+            this.dispName = name;
+        }
+
+    }
+}
+
+package com.nuig.trafficapp;
+
+import com.google.api.client.extensions.android.http.AndroidHttp;
+import com.google.api.client.extensions.android.json.AndroidJsonFactory;
+import com.google.api.client.googleapis.services.AbstractGoogleClientRequest;
+import com.google.api.client.googleapis.services.GoogleClientRequestInitializer;
+import com.google.api.client.http.HttpRequest;
+import com.google.api.client.http.HttpRequestInitializer;
+import com.nuig.trafficapp.activities.LoginActivity;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+import java.io.IOException;
+
+/**
+ * Allows configuring Cloud Endpoint builders to support authenticated calls, as
+ * well as calls to
+ * CLoud Endpoints exposed from an App Engine backend that run locally during
+ * development.
+ */
+public final class CloudEndpointBuilderHelper {
+
+    /**
+     * Default constructor, never called.
+     */
+    private CloudEndpointBuilderHelper() {
+    }
+
+    /**
+     * *
+     *
+     * @return TrafficApp endpoints to the GAE backend.
+     */
+    public static TrafficApp getEndpoints() {
+
+        // Create API handler
+        TrafficApp.Builder builder = new TrafficApp.Builder(
+                AndroidHttp.newCompatibleTransport(),
+                new AndroidJsonFactory(), getRequestInitializer())
+                .setRootUrl(Constants.ROOT_URL)
+                .setApplicationName("Roadviser")
+                .setGoogleClientRequestInitializer(
+                        new GoogleClientRequestInitializer() {
+                            @Override
+                            public void initialize(
+                                    final AbstractGoogleClientRequest<?>
+                                            abstractGoogleClientRequest)
+                                    throws IOException {
+                                abstractGoogleClientRequest
+                                        .setDisableGZipContent(true);
+                            }
+                        }
+                );
+
+        return builder.build();
+    }
+
+    /**
+     * Returns appropriate HttpRequestInitializer depending whether the
+     * application is configured to require users to be signed in or not.
+     * @return an appropriate HttpRequestInitializer.
+     */
+    static HttpRequestInitializer getRequestInitializer() {
+        if (Constants.SIGN_IN_REQUIRED) {
+            return LoginActivity.getCredential();
+            //return LoginActivity.getToken();
+        } else {
+            return new HttpRequestInitializer() {
+                @Override
+                public void initialize(final HttpRequest arg0) {
+                }
+            };
+        }
+    }
+}
+
+
+package com.nuig.trafficapp;
+
+/**
+ * API Keys, Client Ids and Audience Ids for accessing APIs and configuring
+ * Cloud Endpoints. When you deploy your solution, you need to use your own API
+ * Keys and IDs. Please update config.gradle to define them.
+ */
+public final class Constants {
+
+    /**
+     * Substitute you own sender ID here. This is the project number you got
+     * from the API Console, as described in "Getting Started."
+     */
+    public static final String SENDER_ID = BuildConfig.SENDER_ID;
+
+    /**
+     * Web client ID from Google Cloud console.
+     */
+    public static final String WEB_CLIENT_ID = BuildConfig.WEB_CLIENT_ID;
+
+    /**
+     * The web client ID from Google Cloud Console.
+     */
+    public static final String AUDIENCE_ANDROID_CLIENT_ID =
+            "server:client_id:" + WEB_CLIENT_ID;
+
+    /**
+     * The URL to the API. Default when running locally on your computer:
+     * "http://10.0.2.2:8080/_ah/api/"
+     */
+    public static final String ROOT_URL = BuildConfig.ROOT_URL;
+
+    /**
+     * Defines whether authentication is required or not.
+     */
+    public static final boolean SIGN_IN_REQUIRED = BuildConfig.SIGN_IN_REQUIRED;
+
+
+    /**
+     * Default constructor, never called.
+     */
+    private Constants() { }
+}
+package com.nuig.trafficapp;
+
+import android.app.Activity;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.support.v4.content.WakefulBroadcastReceiver;
+
+public class GcmBroadcastReceiver extends WakefulBroadcastReceiver {
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        // Explicitly specify that GcmIntentService will handle the intent.
+        ComponentName comp = new ComponentName(context.getPackageName(),
+                GcmIntentService.class.getName());
+        // Start the service, keeping the device awake while it is launching.
+        startWakefulService(context, (intent.setComponent(comp)));
+        setResultCode(Activity.RESULT_OK);
+    }
+}
+
+package com.nuig.trafficapp;
+
+import android.app.IntentService;
+import android.content.Intent;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.widget.Toast;
+
+import com.google.android.gms.gcm.GoogleCloudMessaging;
+
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+public class GcmIntentService extends IntentService {
+
+    public GcmIntentService() {
+        super("GcmIntentService");
+    }
+
+    @Override
+    protected void onHandleIntent(Intent intent) {
+        Bundle extras = intent.getExtras();
+        GoogleCloudMessaging gcm = GoogleCloudMessaging.getInstance(this);
+        // The getMessageType() intent parameter must be the intent you received
+        // in your BroadcastReceiver.
+        String messageType = gcm.getMessageType(intent);
+
+        if (extras != null && !extras.isEmpty()) {
+            if (GoogleCloudMessaging.MESSAGE_TYPE_MESSAGE.equals(messageType)) {
+                Logger.getLogger("GCM_RECEIVED").log(Level.INFO, extras.toString());
+
+                showToast(extras.getString("message"));
+            }
+        }
+        GcmBroadcastReceiver.completeWakefulIntent(intent);
+    }
+
+    protected void showToast(final String message) {
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(getApplicationContext(), message, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+}package com.nuig.trafficapp;
+
+import android.content.Context;
+import android.support.v4.content.ContextCompat;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
+import android.widget.ImageView;
+import android.widget.TextView;
+import com.nuig.trafficappbackend.trafficApp.model.Incident;
+import java.util.List;
+
+/**
+ * Created by Dylan Toner on 19/01/2016.
+ */
+public class IncidentAdapter extends ArrayAdapter<Incident> {
+    private Context context;
+
+    public IncidentAdapter(Context context, List<Incident> items) {
+        super(context, R.layout.incident_item, items);
+        this.context = context;
+    }
+
+    @Override
+    public View getView(int position, View convertView, ViewGroup parent) {
+        ViewHolder viewHolder;
+
+        if(convertView == null) {
+            // inflate the GridView item layout
+            LayoutInflater inflater = LayoutInflater.from(getContext());
+            convertView = inflater.inflate(R.layout.incident_item, parent, false);
+
+            // initialize the view holder
+            viewHolder = new ViewHolder();
+            viewHolder.ivIcon = (ImageView) convertView.findViewById(R.id.ivIcon);
+            viewHolder.tvTitle = (TextView) convertView.findViewById(R.id.tvTitle);
+            viewHolder.tvDescription = (TextView) convertView.findViewById(R.id.tvDescription);
+            convertView.setTag(viewHolder);
+        } else {
+            // recycle the already inflated view
+            viewHolder = (ViewHolder) convertView.getTag();
+        }
+
+        // update the item view
+        Incident item = getItem(position);
+        //viewHolder.ivIcon.setImageDrawable(item.icon);
+
+        //Set icon colour based on severity
+        String severity = item.getSeverity();
+        if (severity.equals("Low")){
+            viewHolder.ivIcon.setImageDrawable(ContextCompat.getDrawable(context,R.drawable.ic_hazard_yellow));
+        }
+        else if (severity.equals("Medium")){
+            viewHolder.ivIcon.setImageDrawable(ContextCompat.getDrawable(context,R.drawable.ic_hazard_amber));
+        }
+        else if (severity.equals("High")){
+            viewHolder.ivIcon.setImageDrawable(ContextCompat.getDrawable(context,R.drawable.ic_hazard_red));
+        }
+        else{
+            viewHolder.ivIcon.setImageDrawable(ContextCompat.getDrawable(context,R.drawable.ic_hazard_yellow));
+        }
+        viewHolder.tvTitle.setText(item.getTitle());
+        viewHolder.tvDescription.setText(item.getDescription());
+
+        return convertView;
+    }
+
+    private static class ViewHolder {
+        ImageView ivIcon;
+        TextView tvTitle;
+        TextView tvDescription;
+    }
+}
+
+
+
+package com.nuig.trafficapp;
+
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.location.Location;
+import android.location.LocationManager;
+import android.media.RingtoneManager;
+import android.net.Uri;
+import android.os.Bundle;
+import android.preference.PreferenceManager;
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.content.LocalBroadcastManager;
+import android.util.Log;
+
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.gcm.GcmListenerService;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.maps.CameraUpdate;
+import com.google.android.gms.maps.CameraUpdateFactory;
+import com.google.android.gms.maps.model.LatLng;
+import com.nuig.trafficapp.activities.MainActivity;
+import com.nuig.trafficapp.fragments.TabFragment;
+
+import java.util.List;
+
+public class MyGcmListenerService extends GcmListenerService {
+
+    private static final String TAG = "MyGcmListenerService";
+    private  String accountName;
+    private Location mLastLocation;
+    private LocationManager mLocationManager;
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        SharedPreferences settings = getSharedPreferences("TrafficApp", 0);
+        accountName = settings.getString("accountName", null);
+
+        mLocationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+    }
+
+    @Override
+    public void onMessageReceived(String from, Bundle data) {
+        String message = data.getString("message");
+        String email = data.getString("email");
+        Log.d(TAG, "From: " + from);
+        Log.d(TAG, "Message: " + message);
+        mLastLocation = getLastKnownLocation();
+        if (from.startsWith("/topics/insert")) {
+            // message received from some topic.
+
+        } else {
+            // normal downstream message.
+        }
+
+        Intent updateUI = new Intent(QuickstartPreferences.UPDATE_UI);
+        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+        boolean notifications = sharedPreferences.getBoolean("notifications", true);
+        double preferedDist  = sharedPreferences.getInt("radius", 50);
+
+        if(message.equals("delete")){
+            LocalBroadcastManager.getInstance(this).sendBroadcast(updateUI);
+        }
+        else {
+            float latit = Float.parseFloat(data.getString("lat"));
+            float longit = Float.parseFloat(data.getString("long"));
+            if( distFrom(latit,longit,
+                    mLastLocation.getLatitude(),mLastLocation.getLongitude())<=preferedDist){
+
+                //Check if notifications are enabled in preferences
+                 if (notifications) {
+                     //Check that message originates from another user
+                    if(!(email.equals(accountName)))
+                        sendNotification(message);
+                }
+                }
+            LocalBroadcastManager.getInstance(this).sendBroadcast(updateUI);
+        }
+    }
+
+    private Location getLastKnownLocation() {
+        List<String> providers = mLocationManager.getProviders(true);
+        Location bestLocation = null;
+        for (String provider : providers) {
+            Location l=null;
+            try {
+                 l = mLocationManager.getLastKnownLocation(provider);
+            }
+            catch (SecurityException e){
+
+            }
+
+            if (l == null) {
+                continue;
+            }
+            if (bestLocation == null
+                    || l.getAccuracy() < bestLocation.getAccuracy()) {
+
+                bestLocation = l;
+            }
+        }
+        if (bestLocation == null) {
+            return null;
+        }
+        return bestLocation;
+    }
+
+    private void sendNotification(String message) {
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0 /* Request code */, intent,
+                PendingIntent.FLAG_ONE_SHOT);
+
+        Uri defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+        NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this)
+                .setSmallIcon(R.drawable.ic_warning_white_24dp)
+                .setContentTitle("RoadViser")
+                .setContentText("New Incident: " + message)
+                .setAutoCancel(true)
+                .setSound(defaultSoundUri)
+                .setContentIntent(pendingIntent);
+
+        NotificationManager notificationManager =
+                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+
+        notificationManager.notify(0 /* ID of notification */, notificationBuilder.build());
+    }
+
+    public static double distFrom(double lat1, double lng1, double lat2, double lng2) {
+        double earthRadius = 6371;
+        double dLat = Math.toRadians(lat2-lat1);
+        double dLng = Math.toRadians(lng2-lng1);
+        double sindLat = Math.sin(dLat / 2);
+        double sindLng = Math.sin(dLng / 2);
+        double a = Math.pow(sindLat, 2) + Math.pow(sindLng, 2)
+                * Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2));
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        double dist = earthRadius * c;
+
+        return dist;
+    }
+}
+
+package com.nuig.trafficapp;
+
+import android.content.Intent;
+
+import com.google.android.gms.iid.InstanceIDListenerService;
+
+public class MyInstanceIDListenerService extends InstanceIDListenerService {
+
+    private static final String TAG = "MyInstanceIDLS";
+
+    /**
+     * Called if InstanceID token is updated. This may occur if the security of
+     * the previous token had been compromised. This call is initiated by the
+     * InstanceID provider.
+     */
+    // [START refresh_token]
+    @Override
+    public void onTokenRefresh() {
+        // Fetch updated Instance ID token and notify our app's server of any changes (if applicable).
+        Intent intent = new Intent(this, RegistrationIntentService.class);
+        startService(intent);
+    }
+    // [END refresh_token]
+}
+
+
+
+
+package com.nuig.trafficapp;
+
+import android.app.IntentService;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.preference.PreferenceManager;
+import android.support.v4.content.LocalBroadcastManager;
+import android.util.Log;
+
+import com.google.android.gms.gcm.GcmPubSub;
+import com.google.android.gms.gcm.GoogleCloudMessaging;
+import com.google.android.gms.iid.InstanceID;
+import com.nuig.trafficapp.activities.MainActivity;
+import com.nuig.trafficappbackend.trafficApp.TrafficApp;
+
+import java.io.IOException;
+
+public class RegistrationIntentService extends IntentService {
+
+    private static final String TAG = "RegIntentService";
+    private static final String[] TOPICS = {"global"};
+    private static final String PROPERTY_REG_ID = "registrationId";
+    private static final String PROPERTY_APP_VERSION = "appVersion";
+    private TrafficApp trafficAppAPI = CloudEndpointBuilderHelper.getEndpoints();
+    public RegistrationIntentService() {
+        super(TAG);
+    }
+
+    @Override
+    protected void onHandleIntent(Intent intent) {
+        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+
+        try {
+            // [START register_for_gcm]
+            // Initially this call goes out to the network to retrieve the token, subsequent calls
+            // are local.
+            // R.string.gcm_defaultSenderId (the Sender ID) is typically derived from google-services.json.
+            // See https://developers.google.com/cloud-messaging/android/start for details on this file.
+            // [START get_token]
+            InstanceID instanceID = InstanceID.getInstance(this);
+            String token = instanceID.getToken(getString(R.string.gcm_defaultSenderId),
+                    GoogleCloudMessaging.INSTANCE_ID_SCOPE, null);
+            // [END get_token]
+            Log.i(TAG, "GCM Registration Token: " + token);
+
+            // TODO: Implement this method to send any registration to your app's servers.
+            sendRegistrationToServer(token);
+
+            // Subscribe to topic channels
+            subscribeTopics(token);
+
+            // You should store a boolean that indicates whether the generated token has been
+            // sent to your server. If the boolean is false, send the token to your server,
+            // otherwise your server should have already received the token.
+            sharedPreferences.edit().putBoolean(QuickstartPreferences.SENT_TOKEN_TO_SERVER, true).apply();
+            // [END register_for_gcm]
+        } catch (Exception e) {
+            Log.d(TAG, "Failed to complete token refresh", e);
+            // If an exception happens while fetching the new token or updating our registration data
+            // on a third-party server, this ensures that we'll attempt the update at a later time.
+            sharedPreferences.edit().putBoolean(QuickstartPreferences.SENT_TOKEN_TO_SERVER, false).apply();
+        }
+        // Notify UI that registration has completed, so the progress indicator can be hidden.
+        Intent registrationComplete = new Intent(QuickstartPreferences.REGISTRATION_COMPLETE);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(registrationComplete);
+    }
+
+    /**
+     * Persist registration to third-party servers.
+     *
+     * Modify this method to associate the user's GCM registration token with any server-side account
+     * maintained by your application.
+     *
+     * @param token The new token.
+     */
+    private void sendRegistrationToServer(String token) {
+        try {
+            trafficAppAPI.registrations().registerDevice(token).execute();
+            // Persist the registration ID - no need to register again.
+            storeRegistrationId(this, token);
+        } catch (IOException e) {
+        }
+    }
+    private void storeRegistrationId(final Context applicationContext,
+                                     final String registrationId) {
+        final SharedPreferences prefs = getGCMPreferences(applicationContext);
+        int appVersion = getAppVersion(applicationContext);
+        Log.i(TAG, "Saving regId on app version " + appVersion);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putString(PROPERTY_REG_ID, registrationId);
+        editor.putInt(PROPERTY_APP_VERSION, appVersion);
+        editor.apply();
+    }
+    private static int getAppVersion(final Context context) {
+        try {
+            PackageInfo packageInfo = context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), 0);
+            return packageInfo.versionCode;
+        } catch (PackageManager.NameNotFoundException e) {
+            // should never happen
+            throw new RuntimeException("Could not get package name: " + e);
+        }
+    }
+    /**
+     * @param applicationContext the Application context.
+     * @return Application's {@code SharedPreferences}.
+     */
+    private SharedPreferences getGCMPreferences(final Context
+                                                        applicationContext) {
+        // This sample app persists the registration ID in shared preferences,
+        // but how you store the registration ID in your app is up to you.
+        return getSharedPreferences(MainActivity.class.getSimpleName(),
+                Context.MODE_PRIVATE);
+    }
+    /**
+     * Subscribe to any GCM topics of interest, as defined by the TOPICS constant.
+     *
+     * @param token GCM token
+     * @throws IOException if unable to reach the GCM PubSub service
+     */
+    // [START subscribe_topics]
+    private void subscribeTopics(String token) throws IOException {
+        GcmPubSub pubSub = GcmPubSub.getInstance(this);
+        for (String topic : TOPICS) {
+            pubSub.subscribe(token, "/topics/" + topic, null);
+        }
+    }
+    // [END subscribe_topics]
+
+}

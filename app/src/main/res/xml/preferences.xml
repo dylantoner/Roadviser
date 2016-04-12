@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:sample="http://schemas.android.com/apk/res-auto">
+    <PreferenceCategory android:title="Notifications">
+
+        <CheckBoxPreference android:title="Receive Notifications"
+            android:defaultValue="true"
+            android:summary="Select to receive push notifications for nearby incidents."
+            android:key="notifications" />
+        <com.pavelsikun.seekbarpreference.SeekBarPreference
+            android:key="radius"
+            android:title="Discovery Radius"
+            android:summary="Distance in which to retreive incident notifications."
+            android:enabled="true"
+            android:dependency="notifications"
+            android:defaultValue="50"
+            sample:msbp_minValue="0"
+            sample:msbp_maxValue="250"
+            sample:msbp_interval="10"
+            sample:msbp_measurementUnit="KM"/>
+    </PreferenceCategory>
+</PreferenceScreen>
